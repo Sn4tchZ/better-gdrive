@@ -15,7 +15,7 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Sn4tchZ/better-gdrive.git"
+    "url": "git+https://github.com/Sn4tchZ/better-gdrive.git"
   },
   "bugs": {
     "url": "https://github.com/Sn4tchZ/better-gdrive/issues"
