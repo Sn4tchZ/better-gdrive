@@ -52,7 +52,7 @@ export async function fetchDownloadResponse(
         return new Response(text, { status: res.status, headers: res.headers });
     }
     const confirmUrl = parseVirusScanForm(text);
-    if (!confirmUrl) throw new Error("Virus scan form could not be parsed");
+    if (!confirmUrl) return new Response(text, { status: res.status, headers: res.headers });
     const confirmRes = await fetch(confirmUrl, { redirect: "follow", signal });
     if (!confirmRes.ok) throw new Error(`Confirm fetch failed: ${confirmRes.status}`);
     return confirmRes;
