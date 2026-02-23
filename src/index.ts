@@ -4,8 +4,9 @@ export type { FileMetadata } from "./metadata.js";
 export type { ListFileEntry } from "./list.js";
 
 import { getDownloadUrl } from "./resolve.js";
-import { getMetadataFromUrl } from "./metadata.js";
+import { getMetadataFromResponse } from "./metadata.js";
 import { listFiles as listFilesInFolder } from "./list.js";
+import { fetchDownloadResponse } from "./fetchDownload.js";
 
 export interface CommonOptions {
   signal?: AbortSignal;
@@ -24,7 +25,7 @@ export async function getFile(
   options?: CommonOptions
 ): Promise<Blob | Buffer> {
   const url = await getDownloadUrl(fileId, options?.signal);
-  const res = await fetch(url, { signal: options?.signal });
+  const res = await fetchDownloadResponse(url, options?.signal);
   if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
   if (format === "buffer") return Buffer.from(await res.arrayBuffer());
   return res.blob();
@@ -35,7 +36,13 @@ export async function getFileMetadata(
   options?: CommonOptions
 ): Promise<import("./metadata.js").FileMetadata> {
   const url = await getDownloadUrl(fileId, options?.signal);
-  return getMetadataFromUrl(url, options?.signal);
+  const res = await fetchDownloadResponse(url, options?.signal);
+  if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
+  try {
+    return getMetadataFromResponse(res);
+  } finally {
+    res.body?.cancel?.();
+  }
 }
 
 export async function downloadFile(
@@ -44,7 +51,7 @@ export async function downloadFile(
   options?: CommonOptions
 ): Promise<void> {
   const url = await getDownloadUrl(fileId, options?.signal);
-  const res = await fetch(url, { signal: options?.signal });
+  const res = await fetchDownloadResponse(url, options?.signal);
   if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
   if (res.body == null) throw new Error("Response has no body");
   const { Readable } = await import("node:stream");

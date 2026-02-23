@@ -22,14 +22,7 @@ function parseSize(headers: Headers): number | undefined {
   return cr ? parseInt(cr[1], 10) : undefined;
 }
 
-export async function getMetadataFromUrl(
-  url: string,
-  signal?: AbortSignal
-): Promise<FileMetadata> {
-  const res = await fetch(url, { method: "HEAD", redirect: "follow", signal });
-  const headers = res.ok ? res.headers : (res.status === 405
-    ? (await fetch(url, { method: "GET", redirect: "follow", signal, headers: { Range: "bytes=0-0" } })).headers
-    : new Headers());
+function headersToMetadata(headers: Headers): FileMetadata {
   const cd = headers.get("Content-Disposition");
   const lm = headers.get("Last-Modified");
   const ct = headers.get("Content-Type");
@@ -41,4 +34,20 @@ export async function getMetadataFromUrl(
     mimeType: ct ? ct.split(";")[0].trim() || undefined : undefined,
     lastModified,
   };
+}
+
+/** Builds FileMetadata from a Response's headers (e.g. from fetchDownloadResponse). Does not consume the body. */
+export function getMetadataFromResponse(res: Response): FileMetadata {
+  return headersToMetadata(res.headers);
+}
+
+export async function getMetadataFromUrl(
+  url: string,
+  signal?: AbortSignal
+): Promise<FileMetadata> {
+  const res = await fetch(url, { method: "HEAD", redirect: "follow", signal });
+  const headers = res.ok ? res.headers : (res.status === 405
+    ? (await fetch(url, { method: "GET", redirect: "follow", signal, headers: { Range: "bytes=0-0" } })).headers
+    : new Headers());
+  return headersToMetadata(headers);
 }

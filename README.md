@@ -18,6 +18,8 @@ npm install better-gdrive
 
 **Requirements:** Node ≥ 18. Files or folders must be shared with "Anyone with the link".
 
+When Google shows the **"Virus scan warning"** page for a file, the library automatically parses the confirmation form and fetches the real file—no extra step on your side.
+
 ---
 
 ## API — Tutorial by function
