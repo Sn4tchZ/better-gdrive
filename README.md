@@ -1,12 +1,46 @@
 # better-gdrive
 
-[![Node](https://img.shields.io/badge/node-18%20%7C%2020%20%7C%2022%20%7C%2024-339933?style=flat-square&logo=node.js)](https://nodejs.org)
+[![Node](https://img.shields.io/badge/node-%3E%3D18-339933?style=flat-square&logo=node.js)](https://nodejs.org)
 [![npm](https://img.shields.io/npm/v/better-gdrive?style=flat-square)](https://www.npmjs.com/package/better-gdrive)
 [![License](https://img.shields.io/badge/license-MIT-blue?style=flat-square)](./LICENSE)
 
-Download files from **public Google Drive** without OAuth: list a folder, get a file in memory (blob/buffer), read metadata, or save directly to disk. Lightweight, no runtime dependencies, optimized (streaming, low memory).
+**Download and list files from public Google Drive links: no OAuth, zero runtime dependencies.**
 
-If this package is useful to you, a **⭐ [star](https://github.com/Sn4tchZ/better-gdrive)** on the repo is always appreciated.
+Use it in Node or the browser: fetch blobs/buffers, stream to disk, read headers-only metadata, and parse share links into file IDs. Large files stay efficient (streaming where it matters).
+
+---
+
+## Features
+
+- **No OAuth**: works with files and folders shared as *Anyone with the link*.
+- **Small surface**: list folder, get file (`blob` / `buffer`), metadata, save to disk, extract ID from URLs.
+- **Virus-scan flow handled**: if Google returns the confirmation page, the library submits it and continues.
+- **Stable errors**: `GDriveDownloadError` with machine-readable `code` (`QUOTA_EXCEEDED`, `FOLDER_LIST_FAILED`, …).
+- **Cancellable & mockable**: `AbortSignal` and optional custom `fetch` on every call.
+- **TypeScript**: types shipped; ESM + CJS via `package.json` exports.
+
+---
+
+## Quickstart
+
+```bash
+npm install better-gdrive
+```
+
+```js
+import { getFile } from "better-gdrive";
+
+const buffer = await getFile("YOUR_FILE_ID_OR_SHARE_LINK", "buffer");
+// use buffer (Node), or use "blob" in the browser
+```
+
+Requirements: **Node ≥ 18**. The Drive resource must be shared so the link works without signing in.
+
+---
+
+## Why this exists
+
+Google’s public links are enough for many scripts and small apps, but wiring redirects, the virus-scan confirmation form, and error pages yourself is tedious. **better-gdrive** wraps that into a few async functions so you can focus on your data, not on Drive’s HTML.
 
 ---
 
@@ -16,80 +50,106 @@ If this package is useful to you, a **⭐ [star](https://github.com/Sn4tchZ/bett
 npm install better-gdrive
 ```
 
-**Requirements:** Node ≥ 18. Files or folders must be shared with "Anyone with the link".
+Import from the package root for normal use:
 
-When Google shows the **"Virus scan warning"** page for a file, the library automatically parses the confirmation form and fetches the real file—no extra step on your side.
+```js
+import {
+  listFiles,
+  getFile,
+  getFileMetadata,
+  downloadFile,
+  toFileId,
+  GDriveDownloadError,
+} from "better-gdrive";
+```
 
 ---
 
-## API — Tutorial by function
+## API overview
 
-| [listFiles](#listfilesfolderid-options) | [getFile](#getfilefileid-format-options) | [getFileMetadata](#getfilemetadatafileid-options) | [downloadFile](#downloadfilefileid-path-options) | [toFileId](#tofileidinput) |
-|----------------------------------------|----------------------------------------|--------------------------------------------------|--------------------------------------------------|---------------------------|
+| What you need | Function |
+|---------------|----------|
+| List entries in a public folder | `listFiles(folderIdOrLink, options?)` |
+| Load file in memory | `getFile(fileIdOrLink, "blob" \| "buffer", options?)` |
+| Headers only (name, size, …) | `getFileMetadata(fileIdOrLink, options?)` |
+| Stream file to disk (Node) | `downloadFile(fileIdOrLink, path, options?)` |
+| Normalize link to id | `toFileId(input)` |
 
-All functions that take a file accept either an **ID** (e.g. `abc123xyz`) or a **share link** (the ID is extracted automatically). Cancellation is supported via `{ signal: AbortSignal }` on every call.
+You can pass either a **raw file/folder id** or a **share URL**; ids are extracted automatically where applicable.
+
+### Options
+
+All of the above accept `options?: { signal?: AbortSignal; fetch?: typeof fetch }`. Cancel with `signal`, or inject `fetch` for tests or proxies.
+
+### Virus scan warning
+
+If Google serves the intermediate “virus scan” HTML page, the library parses the form and follows the confirmation URL; you do not need an extra manual step.
+
+### Errors
+
+Failures throw **`GDriveDownloadError`** with:
+
+- **`code`**: use this for branching (e.g. `QUOTA_EXCEEDED`, `RESPONSE_NOT_OK`, `FOLDER_LIST_FAILED`).
+- **`message`**, optional **`statusCode`**, **`fileId`**, **`cause`**.
+
+Use **`isGDriveDownloadError(err)`** for type narrowing in TypeScript.
+
+```js
+import { getFile, isGDriveDownloadError } from "better-gdrive";
+
+try {
+  await getFile("FILE_ID", "buffer");
+} catch (err) {
+  if (isGDriveDownloadError(err) && err.code === "QUOTA_EXCEEDED") {
+    /* handle shared-file download quota */
+  }
+  throw err;
+}
+```
+
+### `better-gdrive/advanced`
+
+For custom pipelines, tests, or tooling, import low-level pieces from the secondary entry (same version, separate bundle):
+
+```js
+import { fetchPublicFileResponse, getDownloadUrl } from "better-gdrive/advanced";
+```
+
+This surface may evolve more often than the root API. Only import paths listed under **`exports`** in `package.json` are supported.
 
 ---
 
-### `listFiles(folderId, options?)`
+## Examples
 
-Lists files in a **public folder** (share link or folder ID).
-
-**Returns:** `Promise<ListFileEntry[]>` with `{ id: string, name?: string }` (name is set when Drive’s HTML provides it).
+**List a public folder**
 
 ```js
 import { listFiles } from "better-gdrive";
 
 const files = await listFiles("https://drive.google.com/drive/folders/1ABC...");
-// or
-const files = await listFiles("1ABC...");
-
-console.log(files);
-// [{ id: "xyz123", name: "report.pdf" }, { id: "abc456", name: "data.csv" }, ...]
+// [{ id: "…", name: "report.pdf" }, …]
 ```
 
----
-
-### `getFile(fileId, format, options?)`
-
-Gets the file **in memory** as a `Blob` (browser or Node) or `Buffer` (Node).
-
-- **format:** `"blob"` | `"buffer"`
+**Download as buffer (Node)**
 
 ```js
+import fs from "node:fs";
 import { getFile } from "better-gdrive";
 
-// As buffer (Node)
-const buffer = await getFile("FILE_ID", "buffer");
-fs.writeFileSync("./out.pdf", buffer);
-
-// As blob (Node or browser)
-const blob = await getFile("FILE_ID", "blob");
-const url = URL.createObjectURL(blob);
+const buf = await getFile("FILE_ID", "buffer");
+fs.writeFileSync("./out.bin", buf);
 ```
 
----
-
-### `getFileMetadata(fileId, options?)`
-
-Gets **metadata** without downloading the file (HEAD / minimal Range request).
-
-**Returns:** `Promise<FileMetadata>` with `filename?`, `size?`, `mimeType?`, `lastModified?` (Date).
+**Metadata without full download**
 
 ```js
 import { getFileMetadata } from "better-gdrive";
 
 const meta = await getFileMetadata("FILE_ID");
-console.log(meta.filename);   // "document.pdf"
-console.log(meta.size);       // 1024000
-console.log(meta.lastModified); // Date
+console.log(meta.filename, meta.size, meta.lastModified);
 ```
 
----
-
-### `downloadFile(fileId, path, options?)`
-
-Saves the file **directly to disk** (Node only). Uses streaming to limit memory usage.
+**Save to disk with streaming (Node)**
 
 ```js
 import { downloadFile } from "better-gdrive";
@@ -97,64 +157,58 @@ import { downloadFile } from "better-gdrive";
 await downloadFile("FILE_ID", "./downloads/document.pdf");
 ```
 
----
-
-### `toFileId(input)`
-
-Extracts the **Drive ID** from a share link, or returns the string as-is if it’s already an ID.
+**Extract id from a file link**
 
 ```js
 import { toFileId } from "better-gdrive";
 
-const id = toFileId("https://drive.google.com/file/d/1abcXYZ/view?usp=sharing");
+toFileId("https://drive.google.com/file/d/1abcXYZ/view?usp=sharing");
 // "1abcXYZ"
 ```
 
 ---
 
-### Errors: `GDriveDownloadError`
+## Exported types (main entry)
 
-On failure (bad HTTP status, no download link, etc.), the package throws **`GDriveDownloadError`** (subclass of `Error`) with:
+| Type | Role |
+|------|------|
+| `CommonOptions` | `{ signal?; fetch? }` |
+| `FileMetadata` | `filename?`, `size?`, `mimeType?`, `lastModified?` |
+| `ListFileEntry` | `{ id; name? }` |
+| `ListFilesOptions` | Same shape as options for listing |
+| `GDriveDownloadErrorCode` | Union of `err.code` strings |
+| `FetchLike` | Type for injectable `fetch` |
 
-- **message**
-- **statusCode** (optional)
-- **fileId** (optional)
-
-```js
-import { getFile, GDriveDownloadError } from "better-gdrive";
-
-try {
-  const buffer = await getFile("BAD_ID", "buffer");
-} catch (err) {
-  if (err instanceof GDriveDownloadError) {
-    console.error(err.fileId, err.statusCode);
-  }
-  throw err;
-}
-```
+Advanced-only types (`PublicDownloadPipelineOptions`, …) are exported from `better-gdrive/advanced`.
 
 ---
 
-### Cancellation: `signal`
+## Development
 
-All functions that accept `options` support **`options.signal`** (AbortSignal) to cancel the request.
-
-```js
-const controller = new AbortController();
-setTimeout(() => controller.abort(), 5000);
-
-const files = await listFiles("FOLDER_ID", { signal: controller.signal });
-```
+| Command | Purpose |
+|---------|---------|
+| `npm run build` | Build `dist/` with [tsup](https://tsup.egoist.dev/) |
+| `npm test` | Build, then run [Node’s test runner](https://nodejs.org/api/test.html) on `test/*.test.mjs` |
 
 ---
 
-## Exported types
+## Contributing
 
-- **`ListFileEntry`**: `{ id: string; name?: string }` (returned by `listFiles`)
-- **`FileMetadata`**: `{ filename?; size?; mimeType?; lastModified? }` (returned by `getFileMetadata`)
+Issues and pull requests are welcome. Please open an [**issue**](https://github.com/Sn4tchZ/better-gdrive/issues) to discuss larger changes before heavy refactors.
+
+---
+
+## Support
+
+- **Bug reports & features:** [GitHub Issues](https://github.com/Sn4tchZ/better-gdrive/issues)
+- **Changelog:** [CHANGELOG.md](./CHANGELOG.md)
 
 ---
 
 ## License
 
-MIT
+[MIT](./LICENSE)
+
+---
+
+*README structure draws on ideas from [How to Write A GitHub README for Your Project](https://www.daytona.io/dotfiles/how-to-write-4000-stars-github-readme-for-your-project) (Daytona / Dotfiles Insider).*

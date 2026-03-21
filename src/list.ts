@@ -1,3 +1,6 @@
+import type { FetchLike } from "./http.js";
+import { GDriveDownloadError } from "./errors.js";
+
 const FOLDER_URL = "https://drive.google.com/drive/folders/";
 const FOLDER_ID_REGEX = /\/folders\/([a-zA-Z0-9_-]+)/;
 const SSK_FILE_ID = /ssk='[^']*:([a-zA-Z0-9_-]+)-0-1'/g;
@@ -9,17 +12,41 @@ export interface ListFileEntry {
   name?: string;
 }
 
+export interface ListFilesOptions {
+  signal?: AbortSignal;
+  fetch?: FetchLike;
+}
+
 function toFolderId(input: string): string {
   const m = input.match(FOLDER_ID_REGEX);
   return m ? m[1] : input;
 }
 
+/**
+ * @throws {@link GDriveDownloadError} When the folder page cannot be loaded (`FOLDER_LIST_FAILED`).
+ */
 export async function listFiles(
   folderLinkOrId: string,
-  signal?: AbortSignal
+  options?: ListFilesOptions
 ): Promise<ListFileEntry[]> {
+  const fetchFn = options?.fetch ?? globalThis.fetch;
   const folderId = toFolderId(folderLinkOrId);
-  const html = await (await fetch(`${FOLDER_URL}${encodeURIComponent(folderId)}`, { signal })).text();
+  let r: Response;
+  try {
+    r = await fetchFn(`${FOLDER_URL}${encodeURIComponent(folderId)}`, { signal: options?.signal });
+  } catch (e) {
+    throw new GDriveDownloadError("Failed to fetch folder listing", {
+      code: "FOLDER_LIST_FAILED",
+      cause: e,
+    });
+  }
+  if (!r.ok) {
+    throw new GDriveDownloadError(`Folder listing failed: HTTP ${r.status}`, {
+      code: "FOLDER_LIST_FAILED",
+      statusCode: r.status,
+    });
+  }
+  const html = await r.text();
   const idToName = new Map<string, string>();
   let tr: RegExpExecArray | null;
   TR_ID_NAME.lastIndex = 0;

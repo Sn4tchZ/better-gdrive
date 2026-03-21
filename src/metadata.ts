@@ -36,7 +36,7 @@ function headersToMetadata(headers: Headers): FileMetadata {
   };
 }
 
-/** Builds FileMetadata from a Response's headers (e.g. from fetchDownloadResponse). Does not consume the body. */
+/** Builds FileMetadata from a Response's headers (e.g. from fetchPublicFileResponse). Does not consume the body. */
 export function getMetadataFromResponse(res: Response): FileMetadata {
   return headersToMetadata(res.headers);
 }
